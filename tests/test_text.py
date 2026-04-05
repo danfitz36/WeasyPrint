@@ -1026,6 +1026,127 @@ def test_overflow_wrap_no_break_on_space():
     assert text2.text == '.png'
 
 
+@assert_no_logs
+def test_overflow_wrap_break_word_across_spans():
+    # Regression test for #1614.
+    # overflow-wrap: break-word should character-break a long word even when
+    # it spans across multiple inline elements, because there is no other
+    # break opportunity on the line.
+    page, = render_pages('''
+      <style>
+        body { width: 80px; font-family: weasyprint; font-size: 16px;
+               overflow-wrap: break-word }
+      </style>
+      <body>aaaa<span>bbbb</span>''')
+    html, = page.children
+    body, = html.children
+    # "aaaabbbb" is 8 chars * 16px = 128px > 80px, so it must break.
+    # With overflow-wrap: break-word and no other break opportunity,
+    # character-level breaking should produce two lines.
+    assert len(body.children) == 2
+
+
+@assert_no_logs
+def test_overflow_wrap_break_word_nested_spans():
+    # Regression test for #2102.
+    # A long word wrapped in nested spans should break the same way as
+    # without the extra span nesting.
+    page, = render_pages('''
+      <style>
+        body { width: 80px; font-family: weasyprint; font-size: 16px;
+               overflow-wrap: break-word }
+      </style>
+      <body><span><span>aaaa</span>bbbb</span>''')
+    html, = page.children
+    body, = html.children
+    assert len(body.children) == 2
+
+
+@assert_no_logs
+def test_overflow_wrap_break_word_span_with_space_before():
+    # Verify that overflow-wrap: break-word does NOT character-break when
+    # there IS a soft wrap opportunity (space) before the span.
+    page, = render_pages('''
+      <style>
+        body { width: 80px; font-family: weasyprint; font-size: 16px;
+               overflow-wrap: break-word }
+      </style>
+      <body>aaa <span>bbbbb</span>''')
+    html, = page.children
+    body, = html.children
+    # "aaa " + "bbbbb" overflows, but there's a break at the space.
+    # Line 1: "aaa", Line 2: "bbbbb" (fits on its own line, 5*16=80px).
+    assert len(body.children) == 2
+    line1 = body.children[0]
+    # First line should contain "aaa" (broken at the space)
+    text1 = line1.children[0]
+    # Trailing space may be collapsed; just verify we break at the space.
+    assert text1.text.strip() == 'aaa'
+
+
+@assert_no_logs
+def test_pre_wrap_span_not_pushed_to_next_line():
+    # Regression test for #2308.
+    # With white-space: pre-wrap, a span after a space should NOT be pushed
+    # entirely to the next line when it could fit after wrapping at the space.
+    page, = render_pages('''
+      <style>
+        p { width: 80px; font-family: weasyprint; font-size: 16px;
+            white-space: pre-wrap }
+      </style>
+      <p>aaa <span>bb</span></p>''')
+    html, = page.children
+    body, = html.children
+    p, = body.children
+    # "aaa " is 4 chars = 64px, "bb" is 2 chars = 32px.
+    # Total: 96px > 80px, so break at the space.
+    # Line 1: "aaa ", Line 2: "bb".
+    # The span "bb" should NOT be on a third line by itself.
+    assert len(p.children) == 2
+
+
+@assert_no_logs
+def test_pre_wrap_space_position_relative_to_tag():
+    # Regression test for #2025.
+    # white-space: pre-wrap behavior should not depend on whether a space
+    # is inside or outside a span tag boundary.
+    page1, = render_pages('''
+      <style>
+        p { width: 80px; font-family: weasyprint; font-size: 16px;
+            white-space: pre-wrap }
+      </style>
+      <p>aaa <span>bb</span></p>''')
+    page2, = render_pages('''
+      <style>
+        p { width: 80px; font-family: weasyprint; font-size: 16px;
+            white-space: pre-wrap }
+      </style>
+      <p>aaa<span> bb</span></p>''')
+    html1, = page1.children
+    body1, = html1.children
+    p1, = body1.children
+    html2, = page2.children
+    body2, = html2.children
+    p2, = body2.children
+    # Both should produce the same number of lines.
+    assert len(p1.children) == len(p2.children)
+
+
+@assert_no_logs
+def test_overflow_wrap_normal_no_break_across_spans():
+    # Verify that overflow-wrap: normal does NOT character-break across spans
+    # even when there is no break opportunity. The word should overflow.
+    page, = render_pages('''
+      <style>
+        body { width: 80px; font-family: weasyprint; font-size: 16px }
+      </style>
+      <body>aaaa<span>bbbb</span>''')
+    html, = page.children
+    body, = html.children
+    # With overflow-wrap: normal (default), the word overflows as one line.
+    assert len(body.children) == 1
+
+
 def test_line_break_before_trailing_space():
     # Regression test for #1852.
     page, = render_pages('''

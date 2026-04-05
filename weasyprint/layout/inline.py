@@ -458,7 +458,8 @@ def inline_block_width(box, context, containing_block):
 def split_inline_level(context, box, position_x, max_x, bottom_space,
                        skip_stack, containing_block, absolute_boxes,
                        fixed_boxes, line_placeholders, waiting_floats,
-                       line_children, first_letter_style, first_line_style):
+                       line_children, first_letter_style, first_line_style,
+                       last_letter=None):
     """Fit as much content as possible from an inline-level box in a width.
 
     Return ``(new_box, resume_at, preserved_line_break, first_letter, last_letter)``.
@@ -487,7 +488,16 @@ def split_inline_level(context, box, position_x, max_x, bottom_space,
             skip = skip or 0
             assert skip_stack is None
 
-        is_line_start = len(line_children) == 0
+        if last_letter is not None:
+            remaining = box.text.encode('utf-8')[skip:]
+            if remaining:
+                first_char = remaining.decode('utf-8')[0]
+                is_line_start = not can_break_text(
+                    last_letter + first_char, box.style['lang'])
+            else:
+                is_line_start = True
+        else:
+            is_line_start = len(line_children) == 0
         new_box, skip, preserved_line_break = split_text_box(
             context, box, max_x - position_x, skip,
             is_line_start=is_line_start)
@@ -513,7 +523,8 @@ def split_inline_level(context, box, position_x, max_x, bottom_space,
          last_letter, float_widths) = split_inline_box(
              context, box, position_x, max_x, bottom_space, skip_stack,
              containing_block, absolute_boxes, fixed_boxes, line_placeholders,
-             waiting_floats, line_children, first_letter_style, first_line_style)
+             waiting_floats, line_children, first_letter_style,
+             first_line_style, last_letter=last_letter)
     elif isinstance(box, boxes.AtomicInlineLevelBox):
         new_box = atomic_box(
             context, box, position_x, skip_stack, containing_block,
@@ -709,7 +720,7 @@ def _adjust_line_height(box):
 def split_inline_box(context, box, position_x, max_x, bottom_space, skip_stack,
                      containing_block, absolute_boxes, fixed_boxes, line_placeholders,
                      waiting_floats, line_children, first_letter_style,
-                     first_line_style):
+                     first_line_style, last_letter=None):
     """Fit as much content as possible from an inline box in a width.
 
     Return ``(new_box, resume_at, preserved_line_break, first_letter, last_letter)``.
@@ -747,7 +758,9 @@ def split_inline_box(context, box, position_x, max_x, bottom_space, skip_stack,
     children = []
     waiting_children = []
     preserved_line_break = False
-    first_letter = last_letter = None
+    first_letter = None
+    # last_letter is initialized from the parameter (may be None for LineBox,
+    # or a character from the outer scope for nested InlineBox calls).
     float_widths = {'left': 0, 'right': 0}
     float_resume_index = 0
 
@@ -778,12 +791,24 @@ def split_inline_box(context, box, position_x, max_x, bottom_space, skip_stack,
         is_last_child = (index == len(box.children) - 1)
         available_width = max_x
         child_waiting_floats = []
+        # Normalize last_letter sentinels to actual characters for
+        # is_line_start computation in split_inline_level.
+        # True (collapsible space) -> ' ' (creates a break opportunity).
+        # False (non-breaking space) -> '\xa0' (no break opportunity, so
+        # is_line_start stays True, allowing overflow-wrap to break words).
+        if last_letter is True:
+            effective_last = ' '
+        elif last_letter is False:
+            effective_last = '\xa0'
+        else:
+            effective_last = last_letter
         new_child, resume_at, preserved, first, last, new_float_widths = (
             split_inline_level(
                 context, child, position_x, available_width, bottom_space,
                 skip_stack, containing_block, absolute_boxes, fixed_boxes,
                 line_placeholders, child_waiting_floats, line_children,
-                first_letter_style, first_line_style))
+                first_letter_style, first_line_style,
+                last_letter=effective_last))
         if box.style['direction'] == 'rtl':
             end_spacing = left_spacing
             max_x -= new_float_widths['left']
@@ -799,7 +824,8 @@ def split_inline_box(context, box, position_x, max_x, bottom_space, skip_stack,
                     context, child, position_x, available_width, bottom_space,
                     skip_stack, containing_block, absolute_boxes, fixed_boxes,
                     line_placeholders, child_waiting_floats, line_children,
-                    first_letter_style, first_line_style))
+                    first_letter_style, first_line_style,
+                    last_letter=effective_last))
 
         float_widths['left'] = max(float_widths['left'], new_float_widths['left'])
         float_widths['right'] = max(float_widths['right'], new_float_widths['right'])
